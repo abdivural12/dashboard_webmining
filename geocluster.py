@@ -11,7 +11,7 @@ st.title('Visualisation des réductions de prix par région')
 # Charger les données
 @st.cache_data
 def load_data():
-    file_path = 'C:/Users/Abdi/Desktop/web_min_juin_24_projet/total_out_clean.csv'  # Assurez-vous que le fichier est dans le même répertoire que ce script
+    file_path = 'C:/Users/Abdi/Desktop/web_min_juin_24_projet/total_out_clean.csv' 
     data = pd.read_csv(file_path)
     data['price_reduction'] = data['old_price'] - data['price']
     return data

@@ -6,6 +6,11 @@ from sklearn.cluster import KMeans
 import folium
 from streamlit_folium import folium_static
 from PIL import Image
+import logging
+
+# Set up logging
+logging.basicConfig(filename='geocoding_errors.log', level=logging.ERROR, 
+                    format='%(asctime)s:%(levelname)s:%(message)s')
 
 st.title('Visualisation du clustering des réductions de prix par région')
 
@@ -19,7 +24,6 @@ st.write("Cette interface a été créée dans le but de visualiser les résulta
 # Charger les données
 @st.cache_data
 def load_data():
-    # file_path = 'C:/Users/Abdi/Desktop/web_min_juin_24_projet/total_out_clean.csv'  # Assurez-vous que le fichier est dans le même répertoire que ce script
     data = pd.read_csv('total_out_clean.csv')
     data['price_reduction'] = data['old_price'] - data['price']
     return data
@@ -32,11 +36,11 @@ geolocator = Nominatim(user_agent="geoapiExercises")
 @st.cache_data
 def get_coordinates(region):
     try:
-        location = geolocator.geocode(region)
+        location = geolocator.geocode(region, timeout=10)
         if location:
             return location.latitude, location.longitude
     except Exception as e:
-        st.write(f"Erreur pour la région {region}: {e}")
+        logging.error(f"Erreur pour la région {region}: {e}")
     return None, None
 
 unique_regions = data['region'].unique()
@@ -48,34 +52,41 @@ data['longitude'] = data['region'].map(lambda region: coordinates[region][1])
 # Filtrer les lignes avec des coordonnées valides
 data_with_coords = data.dropna(subset=['latitude', 'longitude'])
 
-# Normaliser les données de réduction de prix
-scaler = StandardScaler()
-data_normalized = scaler.fit_transform(data_with_coords[['price_reduction']])
+# Vérifier si les données avec coordonnées ne sont pas vides
+if data_with_coords.empty:
+    st.error("Aucune donnée valide après le filtrage des coordonnées. Veuillez vérifier les données d'entrée.")
+else:
+    # Normaliser les données de réduction de prix
+    if not data_with_coords[['price_reduction']].empty:
+        scaler = StandardScaler()
+        data_normalized = scaler.fit_transform(data_with_coords[['price_reduction']])
+        
+        # Appliquer le clustering K-Means
+        kmeans = KMeans(n_clusters=3, init='k-means++', max_iter=300, n_init=10, random_state=0)
+        clusters = kmeans.fit_predict(data_normalized)
 
-# Appliquer le clustering K-Means
-kmeans = KMeans(n_clusters=3, init='k-means++', max_iter=300, n_init=10, random_state=0)
-clusters = kmeans.fit_predict(data_normalized)
+        # Ajouter les informations de cluster au DataFrame
+        data_with_coords['cluster'] = clusters
 
-# Ajouter les informations de cluster au DataFrame
-data_with_coords['cluster'] = clusters
+        # Créer une carte centrée sur l'Espagne
+        map = folium.Map(location=[40.4168, -3.7038], zoom_start=5)
 
-# Créer une carte centrée sur l'Espagne
-map = folium.Map(location=[40.4168, -3.7038], zoom_start=5)
+        # Ajouter des points pour chaque région
+        for idx, row in data_with_coords.iterrows():
+            folium.CircleMarker(
+                location=[row['latitude'], row['longitude']],
+                radius=5,
+                popup=f"{row['region']}: {row['price_reduction']}",
+                color=['red', 'blue', 'green'][row['cluster']],
+                fill=True,
+                fill_color=['red', 'blue', 'green'][row['cluster']]
+            ).add_to(map)
 
-# Ajouter des points pour chaque région
-for idx, row in data_with_coords.iterrows():
-    folium.CircleMarker(
-        location=[row['latitude'], row['longitude']],
-        radius=5,
-        popup=f"{row['region']}: {row['price_reduction']}",
-        color=['red', 'blue', 'green'][row['cluster']],
-        fill=True,
-        fill_color=['red', 'blue', 'green'][row['cluster']]
-    ).add_to(map)
-
-# Afficher la carte
-st.write("Carte des réductions de prix par région")
-folium_static(map)
+        # Afficher la carte
+        st.write("Carte des réductions de prix par région")
+        folium_static(map)
+    else:
+        st.error("Les données de réduction de prix sont vides après la normalisation.")
 
 # Charger les images
 image1_path = "ExampleSet.jpeg"
